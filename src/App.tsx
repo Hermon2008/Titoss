@@ -293,7 +293,7 @@ export default function App({ initialTab = 'gen' }: { initialTab?: Tab }) {
               {palette.map((c, i) => (
                 <div key={i} className="sw" style={{ background: c, color: textOn(c) }}>
                   <button className="code" aria-pressed={locked[i]} aria-label={locked[i] ? `Déverrouiller la couleur ${i + 1}` : `Verrouiller la couleur ${i + 1}`} onClick={() => toggleLock(i)}>
-                    {i + 1} · {locked[i] ? <Lock size={14} aria-hidden="true" /> : <LockOpen size={14} aria-hidden="true" />} {locked[i] ? 'Verrouillée' : 'Verrouiller'}
+                    {i + 1} · {locked[i] ? <Lock size={14} aria-hidden="true" /> : <LockOpen size={14} aria-hidden="true" />} {locked[i] ? 'Verrouillée' : 'Déverrouillée'}
                   </button>
                   <div>
                     {[c, rgbStr(c), hslStr(c)].map((t) => (
