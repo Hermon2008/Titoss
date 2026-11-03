@@ -12,7 +12,7 @@ export default function Feedback() {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!rating) return setState('error');
-    (window as unknown as { plausible?: (n: string) => void }).plausible?.('Note ' + rating);
+    window.umami?.track('Note ' + rating);
     if (!endpoint) {
       const to = (import.meta.env.VITE_FEEDBACK_EMAIL as string | undefined) ?? '';
       window.location.href = `mailto:${to}?subject=${encodeURIComponent('Avis sur Titoss')}&body=${encodeURIComponent(`Note : ${rating}/5\n\n${text}`)}`;
@@ -29,11 +29,11 @@ export default function Feedback() {
     } catch { setState('error'); }
   };
 
-  if (state === 'done') return <main className="wide"><section><h2>Merci pour ton avis !</h2><p className="muted">Il m’aide à améliorer Titoss.</p></section></main>;
+  if (state === 'done') return <main className="wide"><section><h1>Merci pour ton avis !</h1><p className="muted">Il m’aide à améliorer Titoss.</p></section></main>;
   return (
     <main className="wide">
       <section className="fb">
-        <h2>Ton avis sur Titoss</h2>
+        <h1>Ton avis sur Titoss</h1>
         <p className="muted">Note l’application et dis-nous ce qui te plaît ou ce qui manque.</p>
         <form onSubmit={submit}>
           <div className="stars" role="radiogroup" aria-label="Note de l’application">

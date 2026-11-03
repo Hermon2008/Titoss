@@ -1,0 +1,23 @@
+{
+  "rewrites": [
+    { "source": "/bibliotheque", "destination": "/bibliotheque.html" },
+    { "source": "/mes-palettes", "destination": "/mes-palettes.html" },
+    { "source": "/avis", "destination": "/avis.html" },
+    { "source": "/mentions-legales", "destination": "/mentions-legales.html" },
+    { "source": "/confidentialite", "destination": "/confidentialite.html" }
+  ],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/(og-image.png|favicon-32x32.png|apple-touch-icon.png|icon-192.png|icon-512.png)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=604800" }
+      ]
+    }
+  ]
+}

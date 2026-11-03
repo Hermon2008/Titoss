@@ -1,10 +1,22 @@
-import { createRoot } from 'react-dom/client';
+import { createRoot, hydrateRoot } from 'react-dom/client';
 import App from './App';
+import LegalPage from './LegalPages';
+import { tabFromPath } from './site';
 import './style.css';
-const d = import.meta.env.VITE_PLAUSIBLE_DOMAIN; // mesure sans cookie (Plausible), activée si défini
-if (d) {
+const websiteId = import.meta.env.VITE_UMAMI_WEBSITE_ID;
+if (websiteId) {
   const s = document.createElement('script');
-  s.defer = true; s.dataset.domain = d; s.src = 'https://plausible.io/js/script.js';
+  s.defer = true;
+  s.src = 'https://cloud.umami.is/script.js';
+  s.dataset.websiteId = websiteId;
   document.head.append(s);
 }
-createRoot(document.getElementById('root')!).render(<App />);
+const path = window.location.pathname;
+const page = path === '/mentions-legales'
+  ? <LegalPage page="mentions-legales" />
+  : path === '/confidentialite'
+    ? <LegalPage page="confidentialite" />
+    : <App initialTab={tabFromPath(path)} />;
+const root = document.getElementById('root')!;
+if (root.hasChildNodes()) hydrateRoot(root, page);
+else createRoot(root).render(page);

@@ -1,38 +1,73 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { COUNTS, METHODS, contrast, generate, hexToHsl, hslToRgb, toHex, type Method } from './color';
-import library from './library.json';
 import Feedback from './Feedback';
-import { Check, Copy, Heart, Lock, LockOpen, Moon, Redo2, Save, Share2, Shuffle, Sun, Undo2, X } from 'lucide-react';
+import SeoContent from './SeoContent';
+import { SITE_URL, TAB_PATHS, tabFromPath } from './site';
+import { applyTheme, getPreferredTheme } from './theme';
+import ThemeToggle from './ThemeToggle';
+import { Check, Copy, Heart, Lock, LockOpen, Redo2, Save, Share2, Shuffle, Undo2, X } from 'lucide-react';
+const Library = lazy(() => import('./Library'));
 
 const DEFAULT_BASE = '#288CBD';
+const INITIAL_PALETTE = ['#E7F5FC', '#8BC9E8', '#288CBD', '#194967', '#0B2639'];
 type Saved = { id: number; name: string; colors: string[]; date: string };
 type Tab = 'gen' | 'lib' | 'mine' | 'fb';
 
 function useLocal<T>(key: string, init: T) {
-  const [v, setV] = useState<T>(() => {
-    try { return JSON.parse(localStorage.getItem(key) ?? '') as T; } catch { return init; }
-  });
-  useEffect(() => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* stockage indisponible */ } }, [key, v]);
+  const [v, setV] = useState<T>(init);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved !== null) setV(JSON.parse(saved) as T);
+    } catch { /* stockage indisponible */ }
+    setReady(true);
+  }, [key]);
+  useEffect(() => {
+    if (ready) {
+      try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* stockage indisponible */ }
+    }
+  }, [key, ready, v]);
   return [v, setV] as const;
 }
 const fromHash = (): string[] | null => {
+  if (typeof window === 'undefined') return null;
   const p = new URLSearchParams(location.hash.slice(1)).get('p')?.split('-');
   return p && p.length >= 2 && p.length <= 8 && p.every((c) => /^[0-9a-f]{6}$/i.test(c)) ? p.map((c) => '#' + c.toUpperCase()) : null;
 };
 const textOn = (hex: string) => {
-  const [r, g, b] = hslToRgb(hexToHsl(hex)!);
-  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#111' : '#fff';
+  return contrast(hex, '#000000') >= contrast(hex, '#FFFFFF') ? '#000000' : '#FFFFFF';
 };
 const rgbStr = (hex: string) => `rgb(${hslToRgb(hexToHsl(hex)!).join(', ')})`;
 const hslStr = (hex: string) => {
   const c = hexToHsl(hex)!;
   return `hsl(${Math.round(c.h)}, ${Math.round(c.s)}%, ${Math.round(c.l)}%)`;
 };
-const track = (name: string) => (window as unknown as { plausible?: (n: string) => void }).plausible?.(name);
-
 function Strip({ colors }: { colors: string[] }) {
-  return <div className="strip" aria-hidden="true">{colors.map((c, i) => <span key={i} style={{ background: c }} />)}</div>;
+  return <div className="strip" aria-hidden="true">{colors.map((color, index) => <span key={index} style={{ background: color }} />)}</div>;
 }
+const pageMeta: Record<Tab, { title: string; description: string; robots: string }> = {
+  gen: {
+    title: 'Titoss : générateur de palettes de couleurs',
+    description: 'Crée gratuitement des palettes de couleurs harmonieuses avec Titoss : 5 méthodes, codes HEX, RGB et HSL, aperçu et vérification du contraste.',
+    robots: 'index, follow',
+  },
+  lib: {
+    title: 'Bibliothèque de palettes de couleurs | Titoss',
+    description: 'Explore 100 palettes de couleurs prêtes à l’emploi, enregistre tes préférées et ouvre-les dans le générateur Titoss.',
+    robots: 'index, follow',
+  },
+  mine: {
+    title: 'Mes palettes | Titoss',
+    description: 'Retrouve tes palettes enregistrées et tes favoris sur cet appareil.',
+    robots: 'noindex, follow',
+  },
+  fb: {
+    title: 'Avis sur Titoss',
+    description: 'Partage ton avis sur le générateur de palettes de couleurs Titoss.',
+    robots: 'noindex, follow',
+  },
+};
 
 function Wheel({ colors }: { colors: string[] }) {
   return (
@@ -40,37 +75,106 @@ function Wheel({ colors }: { colors: string[] }) {
       {colors.map((c, i) => {
         const { h, l } = hexToHsl(c)!;
         const a = ((h - 90) * Math.PI) / 180, r = 62 - (l / 100) * 22;
-        return <b key={i} style={{ background: c, left: 80 + r * Math.cos(a) - 9, top: 80 + r * Math.sin(a) - 9 }}>{i + 1}</b>;
+        return <b key={i} style={{ background: c, color: textOn(c), left: 80 + r * Math.cos(a) - 9, top: 80 + r * Math.sin(a) - 9 }}>{i + 1}</b>;
       })}
     </div>
   );
 }
 
-export default function App() {
-  const shared = fromHash();
-  const [theme, setTheme] = useState<'light' | 'dark'>(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-  const [tab, setTab] = useState<Tab>('gen');
+export default function App({ initialTab = 'gen' }: { initialTab?: Tab }) {
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [tab, setTab] = useState<Tab>(initialTab);
+  const [shared, setShared] = useState<string[] | null>(null);
   const methodFor = (n: number): Method => (n === 2 ? 'Complémentaire' : n === 3 ? 'Triadique' : 'Analogue');
-  const [method, setMethod] = useState<Method>(shared ? methodFor(shared.length) : 'Analogue');
-  const [count, setCount] = useState(shared ? shared.length : 5);
-  const [base, setBase] = useState(shared ? shared[Math.floor((shared.length - 1) / 2)] : DEFAULT_BASE);
+  const [method, setMethod] = useState<Method>('Analogue');
+  const [count, setCount] = useState(5);
+  const [base, setBase] = useState(DEFAULT_BASE);
   const [history, setHistory] = useLocal<string[][]>('titoss-history', []);
   const [idx, setIdx] = useState(-1);
   const [locked, setLocked] = useState<boolean[]>([]);
   const [favs, setFavs] = useLocal<string[]>('titoss-favs', []);
   const [saved, setSaved] = useLocal<Saved[]>('titoss-saved', []);
   const [toast, setToast] = useState('');
-  const [intro, setIntro] = useState(!matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const hist = history.length && idx >= 0 && idx < history.length ? history : [shared ?? generate('Analogue', hexToHsl(DEFAULT_BASE)!)];
+  const [intro, setIntro] = useState(false);
+  const hashSynced = useRef(false);
+  const hist = history.length && idx >= 0 && idx < history.length ? history : [shared ?? INITIAL_PALETTE];
   const cur = idx >= 0 && idx < hist.length ? idx : hist.length - 1;
   const palette = hist[cur];
   const key = palette.join('-');
 
-  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
-  useEffect(() => { window.history.replaceState(null, '', '#p=' + palette.map((c) => c.slice(1)).join('-')); }, [key]);
+  const navigate = (next: Tab) => {
+    setTab(next);
+    const path = TAB_PATHS[next];
+    if (location.pathname !== path) window.history.pushState(null, '', path + location.hash);
+  };
+  useEffect(() => {
+    const colors = fromHash();
+    if (colors) {
+      setShared(colors);
+      setMethod(methodFor(colors.length));
+      setCount(colors.length);
+      setBase(colors[Math.floor((colors.length - 1) / 2)]);
+    } else {
+      setShared(generate('Analogue', hexToHsl(DEFAULT_BASE)!));
+    }
+    setIntro(!matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const preferredTheme = getPreferredTheme();
+    setTheme(preferredTheme);
+    applyTheme(preferredTheme);
+  }, []);
+  useEffect(() => {
+    const meta = pageMeta[tab];
+    document.title = meta.title;
+    const setMeta = (selector: string, value: string) => {
+      const element = document.head.querySelector<HTMLMetaElement>(selector);
+      if (element) element.content = value;
+    };
+    const canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    const pageUrl = SITE_URL + TAB_PATHS[tab];
+    if (canonical) canonical.href = pageUrl;
+    setMeta('meta[name="description"]', meta.description);
+    setMeta('meta[name="robots"]', meta.robots);
+    setMeta('meta[property="og:title"]', meta.title);
+    setMeta('meta[property="og:description"]', meta.description);
+    setMeta('meta[property="og:url"]', pageUrl);
+    setMeta('meta[name="twitter:title"]', meta.title);
+    setMeta('meta[name="twitter:description"]', meta.description);
+    const structuredData = document.head.querySelector('script[type="application/ld+json"]');
+    if (structuredData) {
+      structuredData.textContent = JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'WebApplication',
+        name: 'Titoss',
+        url: pageUrl,
+        description: meta.description,
+        applicationCategory: 'DesignApplication',
+        operatingSystem: 'Tout système disposant d’un navigateur web',
+        inLanguage: 'fr',
+        isAccessibleForFree: true,
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
+      });
+    }
+  }, [tab, theme]);
+  useEffect(() => {
+    const syncTab = () => setTab(tabFromPath(location.pathname));
+    window.addEventListener('popstate', syncTab);
+    return () => window.removeEventListener('popstate', syncTab);
+  }, []);
+  useEffect(() => {
+    if (!hashSynced.current) {
+      hashSynced.current = true;
+      return;
+    }
+    window.history.replaceState(null, '', '#p=' + palette.map((c) => c.slice(1)).join('-'));
+  }, [key]);
   useEffect(() => { if (!intro) return; const t = setTimeout(() => setIntro(false), 2400); return () => clearTimeout(t); }, [intro]);
 
   const say = (t: string) => { setToast(t); setTimeout(() => setToast(''), 1600); };
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    applyTheme(next, true);
+  };
   const copy = async (t: string) => { try { await navigator.clipboard.writeText(t); say('Copié : ' + t.split('\n')[0]); } catch { say('Copie impossible'); } };
   const show = (colors: string[]) => { setHistory([...hist.slice(0, cur + 1), colors].slice(-50)); setIdx(Math.min(cur + 1, 49)); };
   const push = (m: Method, b: string, n = count) => {
@@ -83,7 +187,7 @@ export default function App() {
     const nb = toHex({ ...hsl, h: Math.random() * 360 });
     setBase(nb); push(method, nb);
   };
-  const open = (colors: string[]) => { show(colors); setBase(colors[Math.floor((colors.length - 1) / 2)]); setCount(colors.length); setMethod(methodFor(colors.length)); setLocked([]); setTab('gen'); };
+  const open = (colors: string[]) => { show(colors); setBase(colors[Math.floor((colors.length - 1) / 2)]); setCount(colors.length); setMethod(methodFor(colors.length)); setLocked([]); navigate('gen'); };
   const toggleLock = (i: number) => setLocked(palette.map((_, j) => (j === i ? !locked[j] : !!locked[j])));
   const undo = () => cur > 0 && setIdx(cur - 1);
   const redo = () => cur < hist.length - 1 && setIdx(cur + 1);
@@ -132,17 +236,15 @@ export default function App() {
       )}
       <div className="app-shell">
         <header>
-          <img src={`/titoss-horizontal-fond-${theme === 'dark' ? 'sombre' : 'clair'}.svg`} alt="Titoss" height={48} />
+          <img src={`/titoss-horizontal-fond-${theme === 'dark' ? 'sombre' : 'clair'}.svg`} alt="Titoss" width={154} height={48} />
           <nav aria-label="Navigation principale">
             {([['gen', 'Générateur'], ['lib', 'Bibliothèque'], ['mine', 'Mes palettes'], ['fb', 'Avis']] as const).map(([t, l]) => (
-              <button key={t} className={tab === t ? 'on' : ''} aria-current={tab === t ? 'page' : undefined} onClick={() => setTab(t)}>{l}</button>
+              <button key={t} className={tab === t ? 'on' : ''} aria-current={tab === t ? 'page' : undefined} onClick={() => navigate(t)}>{l}</button>
             ))}
           </nav>
-          <button role="switch" aria-checked={theme === 'dark'} aria-label="Mode sombre" className="switch" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-            <Sun size={14} aria-hidden="true" /><span className="knob" /><Moon size={14} aria-hidden="true" />
-          </button>
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
         </header>
-
+        <SeoContent page={tab} />
         <div className={`page-content page-${tab}`}>
           {tab === 'gen' && (
         <main>
@@ -190,8 +292,8 @@ export default function App() {
             <div className="swatches">
               {palette.map((c, i) => (
                 <div key={i} className="sw" style={{ background: c, color: textOn(c) }}>
-                  <button className="code" aria-pressed={locked[i]} aria-label={`Verrouiller la couleur ${i + 1}`} onClick={() => toggleLock(i)}>
-                    {i + 1} · {locked[i] ? <Lock size={14} aria-hidden="true" /> : <LockOpen size={14} aria-hidden="true" />} {locked[i] ? 'Verrouiller' : 'Déverrouiller'}
+                  <button className="code" aria-pressed={locked[i]} aria-label={locked[i] ? `Déverrouiller la couleur ${i + 1}` : `Verrouiller la couleur ${i + 1}`} onClick={() => toggleLock(i)}>
+                    {i + 1} · {locked[i] ? <Lock size={14} aria-hidden="true" /> : <LockOpen size={14} aria-hidden="true" />} {locked[i] ? 'Verrouillée' : 'Verrouiller'}
                   </button>
                   <div>
                     {[c, rgbStr(c), hslStr(c)].map((t) => (
@@ -218,30 +320,15 @@ export default function App() {
           )}
 
           {tab === 'lib' && (
-        <main className="wide">
-          <section>
-            <h2>Bibliothèque</h2>
-            <p className="muted">100 palettes prêtes à l’emploi : ouvre-les dans le générateur pour les modifier, ou garde-les en favoris sur cet appareil.</p>
-            <div className="grid">
-              {library.map((p, i) => (
-                <article key={`${i}-${p.name}`} className="tile">
-                  <Strip colors={p.colors} />
-                  <div className="row between"><strong>{p.name}</strong>
-                    <button aria-label={`Favori : ${p.name}`} aria-pressed={favs.includes(p.colors.join('-').replace(/#/g, ''))} onClick={() => toggleFav(p.colors.join('-').replace(/#/g, ''))}>
-                      <Heart size={16} fill={favs.includes(p.colors.join('-').replace(/#/g, '')) ? 'currentColor' : 'none'} aria-hidden="true" />
-                    </button></div>
-                  <button onClick={() => open(p.colors)}>Ouvrir dans le générateur</button>
-                </article>
-              ))}
-            </div>
-          </section>
-        </main>
+            <Suspense fallback={<main className="wide"><p className="muted" role="status">Chargement de la bibliothèque…</p></main>}>
+              <Library favs={favs} toggleFav={toggleFav} open={open} />
+            </Suspense>
           )}
 
           {tab === 'mine' && (
         <main className="wide">
           <section>
-            <h2>Mes palettes</h2>
+            <h1>Mes palettes</h1>
             <p className="notice" role="note"><strong>Sauvegarde sur cet appareil.</strong> Tes palettes et tes favoris restent dans ce navigateur : vider ses données les efface, et tu ne les retrouveras pas sur un autre appareil. Pour garder une palette, partage son lien.</p>
             <h3>Enregistrées ({saved.length})</h3>
             <div className="grid">
@@ -267,7 +354,14 @@ export default function App() {
 
           {tab === 'fb' && <Feedback />}
         </div>
-        <footer><span>Titoss · Générateur de palettes</span><button className="link" onClick={() => setTab('fb')}>Donner mon avis</button></footer>
+        <footer>
+          <span>Titoss · Générateur de palettes</span>
+          <nav aria-label="Liens de pied de page">
+            <a href="/mentions-legales">Mentions légales</a>
+            <a href="/confidentialite">Confidentialité</a>
+            <button className="link" onClick={() => navigate('fb')}>Donner mon avis</button>
+          </nav>
+        </footer>
       </div>
       {toast && <div className="toast" role="status">{toast}</div>}
     </>

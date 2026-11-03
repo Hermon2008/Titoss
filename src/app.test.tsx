@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from './App';
+import LegalPage from './LegalPages';
 import { COUNTS, METHODS, contrast, generate, hexToHsl } from './color';
 import library from './library.json';
 
@@ -9,7 +10,7 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 beforeEach(() => { localStorage.clear(); location.hash = ''; });
 afterEach(cleanup);
 const click = (name: string | RegExp) => fireEvent.click(screen.getByRole('button', { name }));
-const locks = () => screen.queryAllByLabelText(/Verrouiller la couleur/);
+const locks = () => screen.queryAllByRole('button', { name: /Verrouiller la couleur|Déverrouiller la couleur/ });
 const bgs = () => Array.from(document.querySelectorAll<HTMLElement>('.sw')).map((e) => e.style.background);
 
 describe('moteur de couleurs', () => {
@@ -62,6 +63,7 @@ describe('application', () => {
     render(<App />);
     fireEvent.click(locks()[0]);
     expect(locks()[0].getAttribute('aria-pressed')).toBe('true');
+    expect(locks()[0].textContent).toContain('Verrouillée');
     const before = bgs()[0];
     click(/Relancer/);
     expect(bgs()[0]).toBe(before);
@@ -74,11 +76,11 @@ describe('application', () => {
     click(/Enregistrer/); click(/Favori/); click('Mes palettes');
     screen.getByText('Enregistrées (1)'); screen.getByText('Favoris (1)');
   });
-  it('ouvre une palette de la bibliothèque sans clé en double', () => {
+  it('ouvre une palette de la bibliothèque sans clé en double', async () => {
     const err = vi.spyOn(console, 'error');
     render(<App />);
     click('Bibliothèque');
-    const open = screen.getAllByRole('button', { name: 'Ouvrir dans le générateur' });
+    const open = await screen.findAllByRole('button', { name: 'Ouvrir dans le générateur' });
     expect(open).toHaveLength(100);
     fireEvent.click(open[0]);
     expect(locks()).toHaveLength(5);
@@ -103,5 +105,27 @@ describe('application', () => {
   it('refuse un avis sans note', async () => {
     render(<App />); click('Avis'); click(/Envoyer mon avis/);
     await waitFor(() => screen.getByRole('alert'));
+  });
+  it('affiche les liens légaux dans le pied de page', () => {
+    render(<App />);
+    expect(screen.getByRole('link', { name: 'Mentions légales' }).getAttribute('href')).toBe('/mentions-legales');
+    expect(screen.getByRole('link', { name: 'Confidentialité' }).getAttribute('href')).toBe('/confidentialite');
+  });
+  it('affiche le contenu des deux pages légales', () => {
+    const { rerender } = render(<LegalPage page="mentions-legales" />);
+    screen.getByRole('heading', { name: 'Mentions légales' });
+    screen.getByRole('link', { name: 'Le traitement des données est décrit dans la politique de confidentialité' });
+    rerender(<LegalPage page="confidentialite" />);
+    screen.getByRole('heading', { name: 'Politique de confidentialité' });
+    screen.getByText(/Titoss utilise Umami pour compter les visites/);
+  });
+  it('permet de choisir et mémoriser le thème sur les pages légales', () => {
+    render(<LegalPage page="mentions-legales" />);
+    const themeSwitch = screen.getByRole('switch', { name: 'Mode sombre' });
+    expect(themeSwitch.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(themeSwitch);
+    expect(themeSwitch.getAttribute('aria-checked')).toBe('true');
+    expect(localStorage.getItem('titoss-theme')).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
   });
 });
